@@ -9,7 +9,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFSIZE  (10 * 1024)   /* 10KiB */
 #define MAXSLEEP (1000 * 1000) /* 1sec */
 #define DEBUG
 
@@ -17,7 +16,7 @@ void pauserecv(struct timeval *start, struct timeval *now, long amount, int rate
 
 int main(int argc, char *argv[])
 {
-  int duration, rate;
+  int duration, rate, chunksize = 10 * 1024; /* 10KiB */
   char *deststr, *buf;
   int sockfd;
   struct sockaddr_in addr_s = {0};
@@ -29,16 +28,18 @@ int main(int argc, char *argv[])
   suseconds_t diff_in_usec;
 
   /* parse arguments */
-  if (argc != 4) {
-    fprintf(stderr, "usage: %s destaddr duration(in sec) rate(in Kibps)\n", argv[0]);
+  if (argc < 4 || 5 < argc) {
+    fprintf(stderr, "usage: %s <destaddr> <duration(in sec)> <rate(in Kibps)> [chunksize(in KiB)(default=10)]\n", argv[0]);
     return 1;
   }
   deststr = argv[1];
   duration = atoi(argv[2]);
   rate = atoi(argv[3]);
+  if (argc == 5)
+    chunksize = atoi(argv[4]) * 1024; /* byte */
 
 #ifdef DEBUG
-  fprintf(stderr, "duration = %d sec, rate = %d Kibps\n", duration, rate);
+  fprintf(stderr, "duration = %d sec, rate = %d Kibps, chunksize = %d KiB\n", duration, rate, chunksize / 1024);
 #endif
 
   /* create socket */
@@ -81,14 +82,14 @@ int main(int argc, char *argv[])
   }
 
 #if 0
-  optval = BUFSIZE;
+  optval = chunksize;
   if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (const void *)&optval, sizeof(optval)) < 0) {
     perror("setsockopt(SO_RCVBUF)");
     return 1;
   }
 #endif
 
-  buf = calloc(BUFSIZE, sizeof(*buf));
+  buf = calloc(chunksize, sizeof(*buf));
 
   clock_gettime(CLOCK_MONOTONIC, &res);
   start.tv_sec = res.tv_sec; start.tv_usec = res.tv_nsec / 1000;
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
 
   /* receive loop */
   while (1) {
-    if ((n = read(sockfd, buf, BUFSIZE)) < 0) {
+    if ((n = read(sockfd, buf, chunksize)) < 0) {
       perror("read");
       break;
     }
@@ -115,7 +116,7 @@ int main(int argc, char *argv[])
     if (timercmp(&now, &end, >=))
       break;
 
-    pauserecv(&start, &now, received + BUFSIZE, rate); /* add final chunk at first */
+    pauserecv(&start, &now, received + chunksize, rate); /* add final chunk at first */
   }
 
 #ifdef DEBUG
